@@ -3,6 +3,7 @@ package org.example;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.cdimascio.dotenv.Dotenv;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVPrinter;
@@ -18,8 +19,11 @@ import java.util.*;
 
 @Service
 class QuestionService {
-    private static final String GEMINI_API_KEY = "";
-    private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_API_KEY;
+    private static final Dotenv dotenv = Dotenv.load();
+    private static final String GEMINI_API_KEY = dotenv.get("GEMINI_API_KEY");
+    private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=";
+    private static final String OPENAI_API_KEY = dotenv.get("OPENAI_API_KEY");
+    private static final String OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -54,17 +58,32 @@ class QuestionService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        String requestBody = generateRequestBody(prompt);
+        String requestBody = generateGeminiRequestBody(prompt);
 
         HttpEntity<String> request = new HttpEntity<>(requestBody, headers);
 
         ResponseEntity<String> response = restTemplate.exchange(
-                GEMINI_API_URL, HttpMethod.POST, request, String.class);
+                GEMINI_API_URL + GEMINI_API_KEY, HttpMethod.POST, request, String.class);
 
         return response.getBody();
     }
 
-    public static String generateRequestBody(String prompt) {
+    private String callChatGptApi(String prompt) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", "Bearer " + OPENAI_API_KEY);
+
+        String requestBody = generateChatGptRequestBody(prompt);
+
+        HttpEntity<String> request = new HttpEntity<>(requestBody, headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                OPENAI_API_URL, HttpMethod.POST, request, String.class);
+
+        return response.getBody();
+    }
+
+    public static String generateGeminiRequestBody(String prompt) {
         try {
             Map<String, Object> text = new HashMap<>();
             text.put("text", prompt);
@@ -81,6 +100,17 @@ class QuestionService {
         } catch (Exception e) {
             throw new RuntimeException("Error generating JSON request body", e);
         }
+    }
+
+    private String generateChatGptRequestBody(String prompt) {
+        return """
+        {
+            "model": "gpt-4",
+            "messages": [
+                {"role": "user", "content": "%s"}
+            ]
+        }
+        """.formatted(prompt);
     }
 
     public void parseResponse(String subject, String subtopic, String response, List<Map<String, String>> generatedData) {
