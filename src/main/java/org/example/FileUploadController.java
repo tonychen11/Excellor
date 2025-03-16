@@ -39,7 +39,7 @@ public class FileUploadController {
 
             String inputCsvFile = targetFile.getAbsolutePath();
 
-            questionService.processQuestions(inputCsvFile, outputCsvFile);
+            questionService.improveQuestionsMCAT(inputCsvFile, outputCsvFile);
 
             return ResponseEntity.ok("File uploaded and processed successfully: " + filename);
         } catch (IOException e) {

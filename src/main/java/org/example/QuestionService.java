@@ -45,13 +45,53 @@ class QuestionService {
                 String prompt = String.format("", subject, subtopic, description);
 
                 String response = callGeminiApi(prompt);
-                parseResponse(subject, subtopic, response, generatedData);
+                parseResponseUSMLE(subject, subtopic, response, generatedData);
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
 
-        writeToCsv(outputFilePath, generatedData);
+        writeToCsvUSMLE(outputFilePath, generatedData);
+    }
+
+    public void improveQuestionsMCAT(String inputFilePath, String outputFilePath) {
+        List<Map<String, String>> records = readCsvMCAT(inputFilePath);
+        writeToCsvMCAT(outputFilePath, records);
+    }
+
+    private List<Map<String, String>> readCsvMCAT(String filePath) {
+        List<Map<String, String>> records = new ArrayList<>();
+        int i = 1;
+
+        try (Reader in = new FileReader(filePath);
+             CSVParser parser = new CSVParser(in, CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).build())) {
+            for (CSVRecord record : parser) {
+                Map<String, String> rowData = Map.of(
+                        "Bank", record.get("Bank"),
+                        "Subject", record.get("Subject"),
+                        "Subtopic", record.get("Subtopic"),
+                        "Question", record.get("Question"),
+                        "Option A", record.get("Option A"),
+                        "Option B", record.get("Option B"),
+                        "Option C", record.get("Option C"),
+                        "Option D", record.get("Option D"),
+                        "Answer", record.get("Answer")
+                );
+
+                String prompt = String.format("");
+                records.add(processRow(rowData, prompt));
+                System.out.println(i++);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error reading CSV file", e);
+        }
+
+        return records;
+    }
+
+    private Map<String, String> processRow(Map<String, String> rowData, String prompt) {
+        String response = callGeminiApi(prompt);
+        return parseResponseMCAT(rowData, response);
     }
 
     private String callGeminiApi(String prompt) {
@@ -59,7 +99,6 @@ class QuestionService {
         headers.setContentType(MediaType.APPLICATION_JSON);
 
         String requestBody = generateGeminiRequestBody(prompt);
-
         HttpEntity<String> request = new HttpEntity<>(requestBody, headers);
 
         ResponseEntity<String> response = restTemplate.exchange(
@@ -85,14 +124,9 @@ class QuestionService {
 
     public static String generateGeminiRequestBody(String prompt) {
         try {
-            Map<String, Object> text = new HashMap<>();
-            text.put("text", prompt);
-
-            Map<String, Object> parts = new HashMap<>();
-            parts.put("parts", List.of(text));
-
-            Map<String, Object> contents = new HashMap<>();
-            contents.put("contents", List.of(parts));
+            Map<String, Object> text = Map.of("text", prompt);
+            Map<String, Object> parts = Map.of("parts", List.of(text));
+            Map<String, Object> contents = Map.of("contents", List.of(parts));
 
             ObjectMapper objectMapper = new ObjectMapper();
             return objectMapper.writeValueAsString(contents);
@@ -113,7 +147,7 @@ class QuestionService {
         """.formatted(prompt);
     }
 
-    public void parseResponse(String subject, String subtopic, String response, List<Map<String, String>> generatedData) {
+    public void parseResponseUSMLE(String subject, String subtopic, String response, List<Map<String, String>> generatedData) {
         try {
             JsonNode rootNode = objectMapper.readTree(response);
 
@@ -150,6 +184,27 @@ class QuestionService {
         }
     }
 
+    private Map<String, String> parseResponseMCAT(Map<String, String> rowData, String response) {
+        try {
+            JsonNode rootNode = objectMapper.readTree(response);
+            String jsonResponse = rootNode.path("candidates")
+                    .get(0).path("content").path("parts").get(0).path("text").asText();
+
+            jsonResponse = cleanJson(jsonResponse);
+
+            ImprovedResponse questionResponse = objectMapper.readValue(jsonResponse, ImprovedResponse.class);
+
+            Map<String, String> row = new LinkedHashMap<>(rowData);
+
+            row.put("Explanation", questionResponse.getExplanation());
+            row.put("Justification", questionResponse.getJustification());
+
+            return row;
+        } catch (Exception e) {
+            throw new RuntimeException("Error parsing API response", e);
+        }
+    }
+
     public static String cleanJson(String jsonResponse) {
         if (jsonResponse.startsWith("```json")) {
             jsonResponse = jsonResponse.substring(7);
@@ -161,7 +216,7 @@ class QuestionService {
         return jsonResponse;
     }
 
-    private void writeToCsv(String filePath, List<Map<String, String>> data) {
+    private void writeToCsvUSMLE(String filePath, List<Map<String, String>> data) {
         String userHome = System.getProperty("user.home");
         Path downloadPath = Paths.get(userHome, "Downloads", filePath);
 
@@ -185,6 +240,35 @@ class QuestionService {
             }
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    private void writeToCsvMCAT(String filePath, List<Map<String, String>> data) {
+        String userHome = System.getProperty("user.home");
+        Path downloadPath = Paths.get(userHome, "Downloads", filePath);
+
+        try (Writer out = new FileWriter(downloadPath.toFile());
+             CSVPrinter printer = new CSVPrinter(out, CSVFormat.DEFAULT.builder()
+                     .setHeader("Bank", "Subject", "Subtopic", "Question", "Option A", "Option B", "Option C", "Option D", "Answer", "Explanation", "Justification")
+                     .build())) {
+
+            for (Map<String, String> record : data) {
+                printer.printRecord(
+                        record.get("Bank"),
+                        record.get("Subject"),
+                        record.get("Subtopic"),
+                        record.get("Question"),
+                        record.get("Option A"),
+                        record.get("Option B"),
+                        record.get("Option C"),
+                        record.get("Option D"),
+                        record.get("Answer"),
+                        record.get("Explanation"),
+                        record.get("Justification")
+                );
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error writing CSV file", e);
         }
     }
 }
