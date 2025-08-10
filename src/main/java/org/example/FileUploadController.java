@@ -24,6 +24,9 @@ public class FileUploadController {
     @Autowired
     private QuestionService questionService;
 
+    @Autowired
+    private CodingPractice codingPractice;
+
     @PostMapping("/upload")
     public ResponseEntity<String> handleFileUpload(@RequestParam("file") MultipartFile file) {
         try {
@@ -39,7 +42,7 @@ public class FileUploadController {
 
             String inputCsvFile = targetFile.getAbsolutePath();
 
-            questionService.processQuestions(inputCsvFile, outputCsvFile);
+            codingPractice.generateCodingQuestionExplanations(inputCsvFile, outputCsvFile);
 
             return ResponseEntity.ok("File uploaded and processed successfully: " + filename);
         } catch (IOException e) {
